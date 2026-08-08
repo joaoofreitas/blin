@@ -17,6 +17,7 @@ import (
 type Note struct {
 	Name     string
 	Time     time.Time
+	Due      time.Time
 	Content  []byte
 	Tags     []string
 	Projects []string
@@ -27,6 +28,7 @@ const (
 	tagColor     = "\033[38;5;205m"
 	projectColor = "\033[38;5;43m"
 	dateColor    = "\033[38;5;150m"
+	headerColor  = "\033[1;38;5;255;48;5;24m"
 )
 
 func main() {
@@ -39,6 +41,7 @@ func main() {
 	list := flag.Bool("ls", false, "Print selected notes as raw Markdown")
 	listTags := flag.Bool("ls-tags", false, "List tags")
 	listProjects := flag.Bool("ls-projects", false, "List projects")
+	due := flag.Bool("due", false, "List notes with due dates, soonest first")
 	filterTag := flag.String("filter-tag", "", "Filter by tag")
 	filterProject := flag.String("filter-project", "", "Filter by project")
 	view := flag.String("view", "", "Render a note by filename")
@@ -68,6 +71,12 @@ func main() {
 			fatal(err)
 		}
 		listValues(projectsForNotes(filterNotes(notes, *filterTag, *filterProject)))
+	case *due:
+		notes, err := loadNotes(*folder)
+		if err != nil {
+			fatal(err)
+		}
+		printDueNotes(dueNotes(filterNotes(notes, *filterTag, *filterProject)))
 	case *list:
 		notes, err := loadNotes(*folder)
 		if err != nil {
@@ -119,7 +128,11 @@ func loadNotes(folder string) ([]Note, error) {
 					note.Projects = append(note.Projects, tok.Value)
 				}
 			case lexer.TokenDate:
-				if date, err := lexer.ParseDate(tok.Value); err == nil && date.After(note.Time) {
+				if dueDate, err := lexer.ParseDueDate(tok.Value); err == nil {
+					if note.Due.IsZero() || dueDate.Before(note.Due) {
+						note.Due = dueDate
+					}
+				} else if date, err := lexer.ParseDate(tok.Value); err == nil && date.After(note.Time) {
 					note.Time = date
 				}
 			}
@@ -200,11 +213,29 @@ func listValues(values []string) {
 }
 
 func printNotes(notes []Note) {
+	printNoteContents(notes, false)
+}
+
+func printRawNotes(notes []Note) {
+	printNoteContents(notes, false)
+}
+
+func printDueNotes(notes []Note) {
+	printNoteContents(notes, true)
+}
+
+func printNoteContents(notes []Note, showDue bool) {
 	for index, note := range notes {
 		if index > 0 {
 			fmt.Println()
 		}
-		fmt.Printf("--- %s (%s) ---\n", note.Name, note.Time.Format("2006-01-02"))
+		date := note.Time
+		label := "DATE"
+		if showDue {
+			date = note.Due
+			label = "DUE"
+		}
+		fmt.Printf("%s %s  %s %s%s\n", headerColor, note.Name, label, date.Format("2006-01-02"), resetColor)
 		fmt.Print(colorizeMarkdown(note.Content))
 		if len(note.Content) == 0 || note.Content[len(note.Content)-1] != '\n' {
 			fmt.Println()
@@ -212,17 +243,17 @@ func printNotes(notes []Note) {
 	}
 }
 
-func printRawNotes(notes []Note) {
-	for index, note := range notes {
-		fmt.Printf("\n\n--- %s (%s) ---\n", note.Name, note.Time.Format("2006-01-02"))
-		if index > 0 {
-			fmt.Println()
-		}
-		fmt.Print(colorizeMarkdown(note.Content))
-		if len(note.Content) == 0 || note.Content[len(note.Content)-1] != '\n' {
-			fmt.Println()
+func dueNotes(notes []Note) []Note {
+	var filtered []Note
+	for _, note := range notes {
+		if !note.Due.IsZero() {
+			filtered = append(filtered, note)
 		}
 	}
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].Due.Before(filtered[j].Due)
+	})
+	return filtered
 }
 
 func viewNote(folder, name string) error {

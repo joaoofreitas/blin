@@ -36,12 +36,15 @@ const (
 	cardContentWidth = cardWidth - 2 // horizontal card padding
 	previewHeight    = 10
 	cardHeight       = previewHeight + 4 // header, divider, and two borders
+	allProjects      = "All Projects"
+	dueNotes         = "Due"
 )
 
 type Note struct {
 	Filename string
 	Preview  string
 	Time     time.Time
+	Due      time.Time
 	Projects []string
 	Tags     []string
 }
@@ -191,6 +194,7 @@ func (m *model) loadAll() {
 		var projects []string
 		var tags []string
 		var fileDate time.Time
+		var dueDate time.Time
 		hasDate := false
 
 		for _, tok := range tokens {
@@ -199,7 +203,11 @@ func (m *model) loadAll() {
 			} else if tok.Type == lexer.TokenTag {
 				tags = append(tags, tok.Value)
 			} else if tok.Type == lexer.TokenDate {
-				if t, err := lexer.ParseDate(tok.Value); err == nil {
+				if due, err := lexer.ParseDueDate(tok.Value); err == nil {
+					if dueDate.IsZero() || due.Before(dueDate) {
+						dueDate = due
+					}
+				} else if t, err := lexer.ParseDate(tok.Value); err == nil {
 					if !hasDate || t.After(fileDate) {
 						fileDate = t
 						hasDate = true
@@ -214,13 +222,15 @@ func (m *model) loadAll() {
 			}
 		}
 
-		m.allNotes = append(m.allNotes, Note{
+		note := Note{
 			Filename: entry.Name(),
 			Preview:  rendered,
 			Time:     fileDate,
+			Due:      dueDate,
 			Projects: projects,
 			Tags:     tags,
-		})
+		}
+		m.allNotes = append(m.allNotes, note)
 	}
 
 	sort.Slice(m.allNotes, func(i, j int) bool {
@@ -236,7 +246,7 @@ func (m *model) refreshProjects() {
 		oldProj = m.projects[m.projectIdx]
 	}
 
-	m.projects = []string{"All Projects"}
+	m.projects = []string{allProjects, dueNotes}
 	projSet := make(map[string]bool)
 	for _, n := range m.allNotes {
 		for _, p := range n.Projects {
@@ -268,7 +278,10 @@ func (m *model) refreshTags() {
 	tagSet := make(map[string]bool)
 
 	for _, n := range m.allNotes {
-		if proj != "All Projects" && !contains(n.Projects, proj) {
+		if proj == dueNotes && n.Due.IsZero() {
+			continue
+		}
+		if proj != allProjects && proj != dueNotes && !contains(n.Projects, proj) {
 			continue
 		}
 		for _, t := range n.Tags {
@@ -301,13 +314,21 @@ func (m *model) refreshGrid() {
 
 	m.filtered = []Note{}
 	for _, n := range m.allNotes {
-		if proj != "All Projects" && !contains(n.Projects, proj) {
+		if proj == dueNotes && n.Due.IsZero() {
+			continue
+		}
+		if proj != allProjects && proj != dueNotes && !contains(n.Projects, proj) {
 			continue
 		}
 		if tag != "All Tags" && !contains(n.Tags, tag) {
 			continue
 		}
 		m.filtered = append(m.filtered, n)
+	}
+	if proj == dueNotes {
+		sort.Slice(m.filtered, func(i, j int) bool {
+			return m.filtered[i].Due.Before(m.filtered[j].Due)
+		})
 	}
 
 	if m.gridCursor >= len(m.filtered) {
@@ -398,9 +419,16 @@ func (m *model) generateGrid() string {
 	var currentRow []string
 
 	for i, file := range m.filtered {
-		dateStr := file.Time.Format("2006-01-02")
-		if file.Time.IsZero() {
+		date := file.Time
+		isDueView := m.projects[m.projectIdx] == dueNotes
+		if isDueView {
+			date = file.Due
+		}
+		dateStr := date.Format("2006-01-02")
+		if date.IsZero() {
 			dateStr = ""
+		} else if isDueView {
+			dateStr = "Due " + dateStr
 		}
 
 		dateLine := lipgloss.NewStyle().
@@ -582,6 +610,16 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.createFocus = 0
 				m.nameInput.Focus()
 				m.contentInput.Blur()
+			}
+		case "d":
+			if m.state == stateFiles {
+				for i, project := range m.projects {
+					if project == dueNotes {
+						m.projectIdx = i
+						m.refreshTags()
+						break
+					}
+				}
 			}
 		case "tab", "shift+tab":
 			if m.state == stateFiles {
@@ -790,6 +828,6 @@ func (m *model) View() string {
 	grid := m.viewport.View()
 	mainArea := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, grid)
 
-	help = helpStyle.Render("Keys: [tab] switch pane | [h/l] cycle projects | [j/k] cycle tags/notes | [c]reate | [enter] select | [q]uit")
+	help = helpStyle.Render("Keys: [tab] switch pane | [h/l] cycle projects | [j/k] cycle tags/notes | [d]ue | [c]reate | [enter] select | [q]uit")
 	return fmt.Sprintf("%s\n\n%s\n%s", header, mainArea, help)
 }

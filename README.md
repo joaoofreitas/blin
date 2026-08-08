@@ -18,8 +18,9 @@ Review the release checklist. #todo +work
 | `#tag` | Tag | `#programming` |
 | `+project` | Project | `+work` |
 | `=YYYYMMDD` | Note date | `=20260808` |
+| `=due:YYYYMMDD` | Due date | `=due:20260815` |
 
-Dates may contain `/` or `-`; blin removes those separators before parsing. Notes sort newest first. A valid note date takes precedence over the file modification time.
+Dates may contain `/` or `-`; blin removes those separators before parsing. Notes sort newest first. A valid note date takes precedence over the file modification time. Due dates are kept separately and sort earliest first.
 
 ## Build
 
@@ -52,6 +53,8 @@ The left sidebar selects a project and its available tags. The right pane shows 
 
 The built-in create and edit forms save with `ctrl+s`. Spaces in note names are converted to hyphens and `.md` is added automatically.
 
+Select `Due` in the project menu, or press `d`, to view due notes ordered by their nearest due date.
+
 ## CLI
 
 Run the CLI from a notes directory, or pass `-folder`:
@@ -75,6 +78,9 @@ go run ../cmd/cli -ls-tags -filter-project +work
 
 # List projects
 go run ../cmd/cli -ls-projects
+
+# Print due notes, soonest first
+go run ../cmd/cli -due
 
 # Print one note
 go run ../cmd/cli -view weekly-planning
