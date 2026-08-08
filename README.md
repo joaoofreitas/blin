@@ -2,6 +2,8 @@
 
 blin is a terminal notes application inspired by [Blinko](https://github.com/blinko-space/blinko) and [todo.txt](http://todotxt.org/). Notes are regular Markdown files. Inline metadata makes notes searchable and sortable without a database.
 
+![Screenshot of the TUI](./images/blin.png)
+
 ## Note syntax
 
 Use metadata anywhere in a Markdown file:
