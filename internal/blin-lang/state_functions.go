@@ -4,6 +4,13 @@ import (
 	"unicode"
 )
 
+// symbolTokens maps a trigger rune to the token type it starts.
+var symbolTokens = map[rune]TokenType{
+	'#': TokenTag,
+	'+': TokenProject,
+	'=': TokenDate,
+}
+
 // lexText is the primary state. It scans plain text until it encounters a trigger symbol.
 func lexText(l *Lexer) stateFn {
 	for {
@@ -14,7 +21,8 @@ func lexText(l *Lexer) stateFn {
 			return nil // Returning nil stops the l.Run() loop
 		}
 
-		if tokType, ok := symbolTokens[r]; ok {
+		tokType, ok := symbolTokens[r]
+		if ok {
 			l.backup()
 			l.emit(TokenText)
 			return lexSymbol(tokType)
@@ -22,22 +30,14 @@ func lexText(l *Lexer) stateFn {
 	}
 }
 
-// symbolTokens maps a trigger rune to the token type it starts.
-var symbolTokens = map[rune]TokenType{
-	'#': TokenTag,
-	'+': TokenProject,
-	'=': TokenDate,
-}
-
 // lexSymbol scans a #tag, +project or =date: the trigger rune followed by
-// content characters. If the trigger has no content right after it (space,
-// EOF, or another trigger char, e.g. a Markdown heading "## Heading"),
-// it's treated as plain text instead.
+// content characters.
 func lexSymbol(t TokenType) stateFn {
 	return func(l *Lexer) stateFn {
-		l.next() // consume trigger rune
-		if next := l.peek(); unicode.IsSpace(next) || next == -1 || isSymbolBoundary(next) {
-			return lexText // no content after trigger (e.g. "## Heading"), not a real tag
+		l.next()
+		next := l.peek()
+		if unicode.IsSpace(next) || next == -1 || isSymbolBoundary(next) {
+			return lexText
 		}
 		for {
 			r := l.next()
@@ -51,5 +51,5 @@ func lexSymbol(t TokenType) stateFn {
 }
 
 func isSymbolBoundary(r rune) bool {
-	return r == '`' || r == '+' || r == '=' || r == '#'
+	return r == '+' || r == '=' || r == '#'
 }

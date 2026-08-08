@@ -78,7 +78,7 @@ func (l *Lexer) next() rune {
 	return r
 }
 
-// backup steps back one rune. Can only be called once per call to next.
+// backup steps back one rune.
 func (l *Lexer) backup() {
 	if l.width > 0 {
 		l.pos -= l.width
