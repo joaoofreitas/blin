@@ -27,3 +27,28 @@ jobs:
         with:
           name: blin-cli-linux-x64
           path: dist/blin-cli
+
+  release:
+    needs: linux-x64
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download TUI artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: blin-linux-x64
+          path: release
+      - name: Download CLI artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: blin-cli-linux-x64
+          path: release
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            release/blin
+            release/blin-cli
