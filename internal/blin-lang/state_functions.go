@@ -30,13 +30,14 @@ var symbolTokens = map[rune]TokenType{
 }
 
 // lexSymbol scans a #tag, +project or =date: the trigger rune followed by
-// non-space characters. If the trigger is immediately followed by a space
-// (e.g. a Markdown heading "# Heading"), it's treated as plain text instead.
+// content characters. If the trigger has no content right after it (space,
+// EOF, or another trigger char, e.g. a Markdown heading "## Heading"),
+// it's treated as plain text instead.
 func lexSymbol(t TokenType) stateFn {
 	return func(l *Lexer) stateFn {
 		l.next() // consume trigger rune
-		if unicode.IsSpace(l.peek()) || l.peek() == -1 {
-			return lexText
+		if next := l.peek(); unicode.IsSpace(next) || next == -1 || isSymbolBoundary(next) {
+			return lexText // no content after trigger (e.g. "## Heading"), not a real tag
 		}
 		for {
 			r := l.next()
