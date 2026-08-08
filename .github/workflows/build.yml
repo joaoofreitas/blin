@@ -1,0 +1,29 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux-x64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build TUI
+        run: GOOS=linux GOARCH=amd64 go build -o dist/blin ./cmd/tui
+      - name: Build CLI
+        run: GOOS=linux GOARCH=amd64 go build -o dist/blin-cli ./cmd/cli
+      - name: Upload TUI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: blin-linux-x64
+          path: dist/blin
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: blin-cli-linux-x64
+          path: dist/blin-cli
