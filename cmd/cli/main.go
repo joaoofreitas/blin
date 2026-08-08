@@ -5,18 +5,76 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	lexer "github.com/joaoofreitas/blin/internal/blin-lang"
 )
 
-func main() {
-	cwd, err := os.Getwd()
-	if err != nil {
-		cwd = "."
+type FileEntry struct {
+	Name string
+	Time time.Time
+}
+
+func getFileDate(path string, entry os.DirEntry) time.Time {
+	info, err := entry.Info()
+	modTime := time.Time{}
+	if err == nil {
+		modTime = info.ModTime()
 	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return modTime
+	}
+
+	tokens := lexer.New(string(content)).Run()
+	var maxDate time.Time
+	hasDate := false
+
+	for _, tok := range tokens {
+		if tok.Type == lexer.TokenDate {
+			if t, err := lexer.ParseDate(tok.Value); err == nil {
+				if !hasDate || t.After(maxDate) {
+					maxDate = t
+					hasDate = true
+				}
+			}
+		}
+	}
+
+	if hasDate {
+		return maxDate
+	}
+	return modTime
+}
+
+func getSortedFiles(folder string) []FileEntry {
+	entries, err := os.ReadDir(folder)
+	if err != nil {
+		return nil
+	}
+
+	var files []FileEntry
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".md") {
+			continue
+		}
+		path := filepath.Join(folder, entry.Name())
+		date := getFileDate(path, entry)
+		files = append(files, FileEntry{Name: entry.Name(), Time: date})
+	}
+
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].Time.After(files[j].Time) // most recent first
+	})
+
+	return files
+}
+
+func main() {
 	needHelp := flag.Bool("help", false, "Show help")
-	folder := flag.String("folder", cwd, "Folder to parse")
 	list := flag.Bool("ls", false, "List markdown files in the current directory")
 	listTags := flag.Bool("ls-tags", false, "List all tags found in the markdown files")
 	listProjects := flag.Bool("ls-projects", false, "List all projects found in the markdown files")
@@ -26,52 +84,42 @@ func main() {
 	flag.Parse()
 	if *needHelp {
 		flag.Usage()
+		return
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = "."
 	}
 
 	if *list {
-		listMarkdownFiles(*folder)
+		listMarkdownFiles(cwd)
 	} else if *listTags {
-		listTagsInMarkdownFiles(*folder)
+		listTagsInMarkdownFiles(cwd)
 	} else if *listProjects {
-		listProjectsInMarkdownFiles(*folder)
+		listProjectsInMarkdownFiles(cwd)
 	} else if *filterTag != "" {
-		filterFilesByTag(*folder, *filterTag)
+		filterFilesByTag(cwd, *filterTag)
 	} else if *filterProject != "" {
-		filterFilesByProject(*folder, *filterProject)
+		filterFilesByProject(cwd, *filterProject)
 	} else {
 		flag.Usage()
 	}
 }
 
 func listMarkdownFiles(folder string) {
-	entries, err := os.ReadDir(folder)
-	if err != nil {
-		fmt.Printf("Error reading directory %s: %v\n", folder, err)
-		return
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".md") {
-			continue
-		}
-		fmt.Println(entry.Name())
+	files := getSortedFiles(folder)
+	for _, file := range files {
+		fmt.Println(file.Name)
 	}
 }
 
 func listTagsInMarkdownFiles(folder string) {
 	tags := make(map[string]bool)
-	entries, err := os.ReadDir(folder)
-	if err != nil {
-		fmt.Printf("Error reading directory %s: %v\n", folder, err)
-		return
-	}
+	files := getSortedFiles(folder)
 
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".md") {
-			continue
-		}
-
-		path := filepath.Join(folder, entry.Name())
+	for _, file := range files {
+		path := filepath.Join(folder, file.Name)
 		content, err := os.ReadFile(path)
 		if err != nil {
 			continue
@@ -92,18 +140,10 @@ func listTagsInMarkdownFiles(folder string) {
 
 func listProjectsInMarkdownFiles(folder string) {
 	projects := make(map[string]bool)
-	entries, err := os.ReadDir(folder)
-	if err != nil {
-		fmt.Printf("Error reading directory %s: %v\n", folder, err)
-		return
-	}
+	files := getSortedFiles(folder)
 
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".md") {
-			continue
-		}
-
-		path := filepath.Join(folder, entry.Name())
+	for _, file := range files {
+		path := filepath.Join(folder, file.Name)
 		content, err := os.ReadFile(path)
 		if err != nil {
 			continue
@@ -123,18 +163,10 @@ func listProjectsInMarkdownFiles(folder string) {
 }
 
 func filterFilesByTag(folder, tag string) {
-	entries, err := os.ReadDir(folder)
-	if err != nil {
-		fmt.Printf("Error reading directory %s: %v\n", folder, err)
-		return
-	}
+	files := getSortedFiles(folder)
 
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".md") {
-			continue
-		}
-
-		path := filepath.Join(folder, entry.Name())
+	for _, file := range files {
+		path := filepath.Join(folder, file.Name)
 		content, err := os.ReadFile(path)
 		if err != nil {
 			continue
@@ -150,24 +182,16 @@ func filterFilesByTag(folder, tag string) {
 		}
 
 		if hasTag {
-			fmt.Println(entry.Name())
+			fmt.Println(file.Name)
 		}
 	}
 }
 
 func filterFilesByProject(folder, project string) {
-	entries, err := os.ReadDir(folder)
-	if err != nil {
-		fmt.Printf("Error reading directory %s: %v\n", folder, err)
-		return
-	}
+	files := getSortedFiles(folder)
 
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".md") {
-			continue
-		}
-
-		path := filepath.Join(folder, entry.Name())
+	for _, file := range files {
+		path := filepath.Join(folder, file.Name)
 		content, err := os.ReadFile(path)
 		if err != nil {
 			continue
@@ -183,7 +207,7 @@ func filterFilesByProject(folder, project string) {
 		}
 
 		if hasProject {
-			fmt.Println(entry.Name())
+			fmt.Println(file.Name)
 		}
 	}
 }

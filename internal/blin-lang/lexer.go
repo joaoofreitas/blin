@@ -44,15 +44,12 @@ func (l *Lexer) Run() []Token {
 // emit passes a token of the specified type back to the token accumulator.
 func (l *Lexer) emit(t TokenType) {
 	if l.pos > l.start {
-		// Don't store text
-		if t != TokenText {
-			l.tokens = append(l.tokens, Token{
-				Type:   t,
-				Value:  l.input[l.start:l.pos],
-				Line:   l.startLine,
-				Column: l.startCol,
-			})
-		}
+		l.tokens = append(l.tokens, Token{
+			Type:   t,
+			Value:  l.input[l.start:l.pos],
+			Line:   l.startLine,
+			Column: l.startCol,
+		})
 		l.start = l.pos
 		l.startLine = l.line
 		l.startCol = l.col
