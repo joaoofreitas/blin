@@ -475,10 +475,9 @@ func (m *model) generateGrid() string {
 
 		if i == m.gridCursor {
 			if m.focus == 1 {
-				style = style.BorderForeground(lipgloss.Color("205")).Background(lipgloss.Color("235"))
+				style = style.BorderForeground(lipgloss.Color("205"))
 			} else {
-				// Dimmer highlight when focus is on sidebar
-				style = style.BorderForeground(lipgloss.Color("240")).Background(lipgloss.Color("234"))
+				style = style.BorderForeground(lipgloss.Color("240"))
 			}
 		} else {
 			style = style.BorderForeground(lipgloss.Color("239"))
