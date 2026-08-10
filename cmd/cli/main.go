@@ -15,12 +15,13 @@ import (
 )
 
 type Note struct {
-	Name     string
-	Time     time.Time
-	Due      time.Time
-	Content  []byte
-	Tags     []string
-	Projects []string
+	Name        string
+	Time        time.Time
+	Due         time.Time
+	TimeTracked map[string]float64
+	Content     []byte
+	Tags        []string
+	Projects    []string
 }
 
 const (
@@ -42,6 +43,7 @@ func main() {
 	listTags := flag.Bool("ls-tags", false, "List tags")
 	listProjects := flag.Bool("ls-projects", false, "List projects")
 	due := flag.Bool("due", false, "List notes with due dates, soonest first")
+	timeTracked := flag.Bool("time-tracked", false, "List notes with tracked time")
 	filterTag := flag.String("filter-tag", "", "Filter by tag")
 	filterProject := flag.String("filter-project", "", "Filter by project")
 	view := flag.String("view", "", "Render a note by filename")
@@ -77,6 +79,12 @@ func main() {
 			fatal(err)
 		}
 		printDueNotes(dueNotes(filterNotes(notes, *filterTag, *filterProject)))
+	case *timeTracked:
+		notes, err := loadNotes(*folder)
+		if err != nil {
+			fatal(err)
+		}
+		printNotes(timeTrackedNotes(filterNotes(notes, *filterTag, *filterProject)))
 	case *list:
 		notes, err := loadNotes(*folder)
 		if err != nil {
@@ -116,6 +124,7 @@ func loadNotes(folder string) ([]Note, error) {
 		}
 
 		note := Note{Name: entry.Name(), Content: content}
+		note.TimeTracked = make(map[string]float64)
 		tokens := lexer.New(string(content)).Run()
 		for _, tok := range tokens {
 			switch tok.Type {
@@ -127,12 +136,22 @@ func loadNotes(folder string) ([]Note, error) {
 				if !contains(note.Projects, tok.Value) {
 					note.Projects = append(note.Projects, tok.Value)
 				}
+			case lexer.TokenTime:
+				_, id, hours, err := lexer.ParseTimeTrackingDate(tok.Value)
+				if err != nil {
+					return nil, fmt.Errorf("parse time tracking in %s: %w", path, err)
+				}
+				note.TimeTracked[id] += hours
+			case lexer.TokenDue:
+				dueDate, err := lexer.ParseDueDate(tok.Value)
+				if err != nil {
+					return nil, fmt.Errorf("parse due date in %s: %w", path, err)
+				}
+				if note.Due.IsZero() || dueDate.Before(note.Due) {
+					note.Due = dueDate
+				}
 			case lexer.TokenDate:
-				if dueDate, err := lexer.ParseDueDate(tok.Value); err == nil {
-					if note.Due.IsZero() || dueDate.Before(note.Due) {
-						note.Due = dueDate
-					}
-				} else if date, err := lexer.ParseDate(tok.Value); err == nil && date.After(note.Time) {
+				if date, err := lexer.ParseDate(tok.Value); err == nil && date.After(note.Time) {
 					note.Time = date
 				}
 			}
@@ -235,12 +254,33 @@ func printNoteContents(notes []Note, showDue bool) {
 			date = note.Due
 			label = "DUE"
 		}
+		tracking := formatTimeTracking(note.TimeTracked)
 		fmt.Printf("%s %s  %s %s%s\n", headerColor, note.Name, label, date.Format("2006-01-02"), resetColor)
+		if tracking != "" {
+			fmt.Printf("TIME %s\n", tracking)
+		}
 		fmt.Print(colorizeMarkdown(note.Content))
 		if len(note.Content) == 0 || note.Content[len(note.Content)-1] != '\n' {
 			fmt.Println()
 		}
 	}
+}
+
+func formatTimeTracking(entries map[string]float64) string {
+	if len(entries) == 0 {
+		return ""
+	}
+	ids := make([]string, 0, len(entries))
+	for id := range entries {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	parts := make([]string, 0, len(ids))
+	for _, id := range ids {
+		parts = append(parts, fmt.Sprintf("%s %.2gh", id, entries[id]))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func dueNotes(notes []Note) []Note {
@@ -253,6 +293,16 @@ func dueNotes(notes []Note) []Note {
 	sort.Slice(filtered, func(i, j int) bool {
 		return filtered[i].Due.Before(filtered[j].Due)
 	})
+	return filtered
+}
+
+func timeTrackedNotes(notes []Note) []Note {
+	var filtered []Note
+	for _, note := range notes {
+		if len(note.TimeTracked) > 0 {
+			filtered = append(filtered, note)
+		}
+	}
 	return filtered
 }
 
@@ -278,13 +328,13 @@ func colorizeMarkdown(content []byte) string {
 		switch token.Type {
 		case lexer.TokenTag:
 			builder.WriteString(tagColor)
-			builder.WriteString(token.Value)
+			builder.WriteString(strings.TrimPrefix(token.Value, "="))
 			builder.WriteString(resetColor)
 		case lexer.TokenProject:
 			builder.WriteString(projectColor)
-			builder.WriteString(token.Value)
+			builder.WriteString(strings.TrimPrefix(token.Value, "="))
 			builder.WriteString(resetColor)
-		case lexer.TokenDate:
+		case lexer.TokenDate, lexer.TokenDue, lexer.TokenTime:
 			builder.WriteString(dateColor)
 			builder.WriteString(token.Value)
 			builder.WriteString(resetColor)

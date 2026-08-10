@@ -7,9 +7,11 @@ const (
 	TokenError TokenType = iota
 	TokenEOF
 	TokenText    // Standard Markdown body text
-	TokenTag     // #tag
-	TokenProject // +project
-	TokenDate    // =yyyy-mm-dd or =dd-mm-yyyy
+	TokenTag     // =#tag
+	TokenProject // =+project
+	TokenDate    // =YYYYMMDD
+	TokenDue     // =due:YYYYMMDD
+	TokenTime    // =tt:YYYYMMDD:(ID:hours)
 )
 
 type Token struct {

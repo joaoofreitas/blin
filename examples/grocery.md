@@ -2,6 +2,6 @@
 
 - Milk
 - Eggs
-- Coffee #urgent
+- Coffee =#urgent
 
-Need to go to the store before 8 PM. +home #shopping
+Need to go to the store before 8 PM. =+home =#shopping
