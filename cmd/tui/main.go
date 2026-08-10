@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -28,6 +29,7 @@ const (
 	stateMarkdown
 	stateCreate
 	stateEdit
+	stateTimeTracking
 )
 
 const (
@@ -46,9 +48,14 @@ type Note struct {
 	Preview     string
 	Time        time.Time
 	Due         time.Time
-	TimeTracked map[string]float64
+	TimeTracked map[string]TimeTotal
 	Projects    []string
 	Tags        []string
+}
+
+type TimeTotal struct {
+	Hours float64
+	Last  time.Time
 }
 
 type model struct {
@@ -75,6 +82,7 @@ type model struct {
 	contentInput         textarea.Model
 	createFocus          int
 	originalEditFilename string
+	timeTable            table.Model
 }
 
 func main() {
@@ -109,6 +117,61 @@ func main() {
 
 func (m *model) Init() tea.Cmd {
 	return textinput.Blink
+}
+
+func (m *model) buildTimeTrackingTable() {
+	totals := make(map[string]TimeTotal)
+	for _, note := range m.allNotes {
+		for id, total := range note.TimeTracked {
+			aggregate := totals[id]
+			aggregate.Hours += total.Hours
+			if total.Last.After(aggregate.Last) {
+				aggregate.Last = total.Last
+			}
+			totals[id] = aggregate
+		}
+	}
+
+	ids := make([]string, 0, len(totals))
+	for id := range totals {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		if totals[ids[i]].Last.Equal(totals[ids[j]].Last) {
+			return ids[i] < ids[j]
+		}
+		return totals[ids[i]].Last.After(totals[ids[j]].Last)
+	})
+	rows := make([]table.Row, 0, len(ids))
+	for _, id := range ids {
+		total := totals[id]
+		rows = append(rows, table.Row{
+			id,
+			fmt.Sprintf("%.2f h", total.Hours),
+			total.Last.Format("2006-01-02"),
+		})
+	}
+
+	styles := table.DefaultStyles()
+	styles.Header = styles.Header.Foreground(lipgloss.Color("205")).Bold(true)
+	styles.Selected = styles.Selected.Foreground(lipgloss.Color("212")).Bold(true)
+
+	height := m.height - 4
+	if height < 1 {
+		height = 1
+	}
+	m.timeTable = table.New(
+		table.WithColumns([]table.Column{
+			{Title: "ID", Width: 24},
+			{Title: "TOTAL", Width: 12},
+			{Title: "LAST TRACKED", Width: 14},
+		}),
+		table.WithRows(rows),
+		table.WithFocused(true),
+		table.WithHeight(height),
+		table.WithWidth(m.width),
+		table.WithStyles(styles),
+	)
 }
 
 func renderPreview(content []byte) string {
@@ -165,7 +228,7 @@ func fixedPreview(preview string) string {
 	return strings.Join(lines, "\n")
 }
 
-func formatTimeTracking(entries map[string]float64) string {
+func formatTimeTracking(entries map[string]TimeTotal) string {
 	if len(entries) == 0 {
 		return ""
 	}
@@ -177,7 +240,7 @@ func formatTimeTracking(entries map[string]float64) string {
 
 	parts := make([]string, 0, len(ids))
 	for _, id := range ids {
-		parts = append(parts, fmt.Sprintf("%s %.2gh", id, entries[id]))
+		parts = append(parts, fmt.Sprintf("%s %.2gh", id, entries[id].Hours))
 	}
 	return strings.Join(parts, ", ")
 }
@@ -216,7 +279,7 @@ func (m *model) loadAll() {
 		var tags []string
 		var fileDate time.Time
 		var dueDate time.Time
-		timeTracked := make(map[string]float64)
+		timeTracked := make(map[string]TimeTotal)
 		hasDate := false
 
 		for _, tok := range tokens {
@@ -225,8 +288,13 @@ func (m *model) loadAll() {
 			} else if tok.Type == lexer.TokenTag {
 				tags = append(tags, tok.Value)
 			} else if tok.Type == lexer.TokenTime {
-				if _, id, hours, err := lexer.ParseTimeTrackingDate(tok.Value); err == nil {
-					timeTracked[id] += hours
+				if date, id, hours, err := lexer.ParseTimeTrackingDate(tok.Value); err == nil {
+					total := timeTracked[id]
+					total.Hours += hours
+					if date.After(total.Last) {
+						total.Last = date
+					}
+					timeTracked[id] = total
 				}
 			} else if tok.Type == lexer.TokenDue {
 				if due, err := lexer.ParseDueDate(tok.Value); err == nil {
@@ -631,6 +699,29 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 	}
 
+	if m.state == stateTimeTracking {
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "q", "ctrl+c":
+				return m, tea.Quit
+			case "esc":
+				m.state = stateFiles
+				m.viewport.Width = m.width - sidebarWidth - 2
+				m.updateViewportContent()
+				return m, nil
+			}
+		case tea.WindowSizeMsg:
+			m.width = msg.Width
+			m.height = msg.Height
+			m.buildTimeTrackingTable()
+			return m, nil
+		}
+
+		m.timeTable, cmd = m.timeTable.Update(msg)
+		return m, cmd
+	}
+
 	switch msg := msg.(type) {
 	case editorFinishedMsg:
 		m.loadAll()
@@ -663,13 +754,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "t":
 			if m.state == stateFiles {
-				for i, project := range m.projects {
-					if project == timeTrackingNotes {
-						m.projectIdx = i
-						m.refreshTags()
-						break
-					}
-				}
+				m.state = stateTimeTracking
+				m.buildTimeTrackingTable()
 			}
 		case "tab", "shift+tab":
 			if m.state == stateFiles {
@@ -788,6 +874,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if m.state == stateFiles {
 				if m.focus == 0 {
+					if m.projects[m.projectIdx] == timeTrackingNotes {
+						m.state = stateTimeTracking
+						m.buildTimeTrackingTable()
+						return m, nil
+					}
 					// Hop focus to grid on enter
 					m.focus = 1
 					m.updateViewportContent()
@@ -851,6 +942,8 @@ func (m *model) View() string {
 		header = headerStyle.Render("Create New Note")
 	case stateEdit:
 		header = headerStyle.Render("Edit Note")
+	case stateTimeTracking:
+		header = headerStyle.Render("Time Tracking")
 	}
 
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
@@ -871,6 +964,11 @@ func (m *model) View() string {
 	if m.state == stateMarkdown {
 		help = helpStyle.Render("Keys: [esc] back to workspace | [e]dit internally | [E]xternal editor | [q]uit | [↑/↓] scroll")
 		return fmt.Sprintf("%s\n\n%s\n%s", header, m.viewport.View(), help)
+	}
+
+	if m.state == stateTimeTracking {
+		help = helpStyle.Render("Keys: [↑/↓] navigate | [esc] back to workspace | [q]uit")
+		return fmt.Sprintf("%s\n\n%s\n%s", header, m.timeTable.View(), help)
 	}
 
 	// State Files View

@@ -18,10 +18,15 @@ type Note struct {
 	Name        string
 	Time        time.Time
 	Due         time.Time
-	TimeTracked map[string]float64
+	TimeTracked map[string]TimeTotal
 	Content     []byte
 	Tags        []string
 	Projects    []string
+}
+
+type TimeTotal struct {
+	Hours float64
+	Last  time.Time
 }
 
 const (
@@ -84,7 +89,7 @@ func main() {
 		if err != nil {
 			fatal(err)
 		}
-		printNotes(timeTrackedNotes(filterNotes(notes, *filterTag, *filterProject)))
+		printTimeTrackingTotals(timeTrackedNotes(filterNotes(notes, *filterTag, *filterProject)))
 	case *list:
 		notes, err := loadNotes(*folder)
 		if err != nil {
@@ -124,7 +129,7 @@ func loadNotes(folder string) ([]Note, error) {
 		}
 
 		note := Note{Name: entry.Name(), Content: content}
-		note.TimeTracked = make(map[string]float64)
+		note.TimeTracked = make(map[string]TimeTotal)
 		tokens := lexer.New(string(content)).Run()
 		for _, tok := range tokens {
 			switch tok.Type {
@@ -137,11 +142,16 @@ func loadNotes(folder string) ([]Note, error) {
 					note.Projects = append(note.Projects, tok.Value)
 				}
 			case lexer.TokenTime:
-				_, id, hours, err := lexer.ParseTimeTrackingDate(tok.Value)
+				date, id, hours, err := lexer.ParseTimeTrackingDate(tok.Value)
 				if err != nil {
 					return nil, fmt.Errorf("parse time tracking in %s: %w", path, err)
 				}
-				note.TimeTracked[id] += hours
+				total := note.TimeTracked[id]
+				total.Hours += hours
+				if date.After(total.Last) {
+					total.Last = date
+				}
+				note.TimeTracked[id] = total
 			case lexer.TokenDue:
 				dueDate, err := lexer.ParseDueDate(tok.Value)
 				if err != nil {
@@ -266,7 +276,7 @@ func printNoteContents(notes []Note, showDue bool) {
 	}
 }
 
-func formatTimeTracking(entries map[string]float64) string {
+func formatTimeTracking(entries map[string]TimeTotal) string {
 	if len(entries) == 0 {
 		return ""
 	}
@@ -278,7 +288,7 @@ func formatTimeTracking(entries map[string]float64) string {
 
 	parts := make([]string, 0, len(ids))
 	for _, id := range ids {
-		parts = append(parts, fmt.Sprintf("%s %.2gh", id, entries[id]))
+		parts = append(parts, fmt.Sprintf("%s %.2gh", id, entries[id].Hours))
 	}
 	return strings.Join(parts, ", ")
 }
@@ -304,6 +314,36 @@ func timeTrackedNotes(notes []Note) []Note {
 		}
 	}
 	return filtered
+}
+
+func printTimeTrackingTotals(notes []Note) {
+	totals := make(map[string]TimeTotal)
+	for _, note := range notes {
+		for id, total := range note.TimeTracked {
+			aggregate := totals[id]
+			aggregate.Hours += total.Hours
+			if total.Last.After(aggregate.Last) {
+				aggregate.Last = total.Last
+			}
+			totals[id] = aggregate
+		}
+	}
+
+	fmt.Println("ID                    TOTAL    LAST TRACKED")
+	ids := make([]string, 0, len(totals))
+	for id := range totals {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		if totals[ids[i]].Last.Equal(totals[ids[j]].Last) {
+			return ids[i] < ids[j]
+		}
+		return totals[ids[i]].Last.After(totals[ids[j]].Last)
+	})
+	for _, id := range ids {
+		total := totals[id]
+		fmt.Printf("%-20s  %5.2f h  %s\n", id, total.Hours, total.Last.Format("2006-01-02"))
+	}
 }
 
 func viewNote(folder, name string) error {

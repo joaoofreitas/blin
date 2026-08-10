@@ -25,8 +25,7 @@ Review the release checklist. =#todo =+work
 
 Dates may contain `/` or `-`; blin removes those separators before parsing. Notes sort newest first. A valid note date takes precedence over the file modification time. Due dates are kept separately and sort earliest first.
 
-Time entries are aggregated per note and task ID. The CLI prints the totals below
-each note header; the TUI shows them at the top of a note preview.
+Time Tracking shows total hours for each ID.
 
 ## Build
 
@@ -89,7 +88,7 @@ go run ../cmd/cli -ls-projects
 # Print due notes, soonest first
 go run ../cmd/cli -due
 
-# Print notes with time entries
+# Print time entries and totals
 go run ../cmd/cli -time-tracked
 
 # Print one note
