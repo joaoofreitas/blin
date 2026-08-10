@@ -7,4 +7,6 @@ Features to add:
 - TUI interface =+blin =#tui
 - Search =#search
 
+=tt:20260809:(tui:0.75h)
+
 =tt:20260810:(3000:6.5h)
