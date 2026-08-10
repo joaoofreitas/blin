@@ -11,18 +11,22 @@ Use metadata anywhere in a Markdown file:
 ```md
 # Weekly planning =20260808
 
-Finish the terminal interface. #urgent #programming +work
-Review the release checklist. #todo +work
+Finish the terminal interface. =#urgent =#programming =+work
+Review the release checklist. =#todo =+work
 ```
 
 | Syntax | Meaning | Example |
 | --- | --- | --- |
-| `#tag` | Tag | `#programming` |
-| `+project` | Project | `+work` |
+| `=#tag` | Tag | `=#programming` |
+| `=+project` | Project | `=+work` |
 | `=YYYYMMDD` | Note date | `=20260808` |
 | `=due:YYYYMMDD` | Due date | `=due:20260815` |
+| `=tt:YYYYMMDD:(ID:hours)` | Time entry | `=tt:20260810:(task-42:2.5h)` |
 
 Dates may contain `/` or `-`; blin removes those separators before parsing. Notes sort newest first. A valid note date takes precedence over the file modification time. Due dates are kept separately and sort earliest first.
+
+Time entries are aggregated per note and task ID. The CLI prints the totals below
+each note header; the TUI shows them at the top of a note preview.
 
 ## Build
 
@@ -56,6 +60,7 @@ The left sidebar selects a project and its available tags. The right pane shows 
 The built-in create and edit forms save with `ctrl+s`. Spaces in note names are converted to hyphens and `.md` is added automatically.
 
 Select `Due` in the project menu, or press `d`, to view due notes ordered by their nearest due date.
+Select `Time Tracking`, or press `t`, to view notes with time entries.
 
 ## CLI
 
@@ -73,16 +78,19 @@ The default command prints all notes with filename headers. `-ls` prints just th
 go run ../cmd/cli
 
 # Print raw note contents for one project and tag
-go run ../cmd/cli -ls -filter-project +work -filter-tag '#urgent'
+go run ../cmd/cli -ls -filter-project =+work -filter-tag '=#urgent'
 
 # List tags available for a project
-go run ../cmd/cli -ls-tags -filter-project +work
+go run ../cmd/cli -ls-tags -filter-project =+work
 
 # List projects
 go run ../cmd/cli -ls-projects
 
 # Print due notes, soonest first
 go run ../cmd/cli -due
+
+# Print notes with time entries
+go run ../cmd/cli -time-tracked
 
 # Print one note
 go run ../cmd/cli -view weekly-planning
@@ -92,3 +100,7 @@ go run ../cmd/cli -create 'weekly planning' -content '# Weekly Planning'
 ```
 
 > The TUI was completely generated with AI assistance. Most of the CLI, along with the lexer and overall design, was written by a human and validated with AI assistance.
+
+## References
+
+- https://medium.com/@filinvadim/llms-for-go-developers-a-plug-and-play-approach-with-llama-cpp-4ccccb6d04df

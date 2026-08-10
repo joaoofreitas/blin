@@ -31,22 +31,24 @@ const (
 )
 
 const (
-	sidebarWidth     = 26
-	cardWidth        = 38
-	cardContentWidth = cardWidth - 2 // horizontal card padding
-	previewHeight    = 10
-	cardHeight       = previewHeight + 4 // header, divider, and two borders
-	allProjects      = "All Projects"
-	dueNotes         = "Due"
+	sidebarWidth      = 26
+	cardWidth         = 38
+	cardContentWidth  = cardWidth - 2 // horizontal card padding
+	previewHeight     = 10
+	cardHeight        = previewHeight + 4 // header, divider, and two borders
+	allProjects       = "All Projects"
+	dueNotes          = "Due"
+	timeTrackingNotes = "Time Tracking"
 )
 
 type Note struct {
-	Filename string
-	Preview  string
-	Time     time.Time
-	Due      time.Time
-	Projects []string
-	Tags     []string
+	Filename    string
+	Preview     string
+	Time        time.Time
+	Due         time.Time
+	TimeTracked map[string]float64
+	Projects    []string
+	Tags        []string
 }
 
 type model struct {
@@ -120,10 +122,10 @@ func renderPreview(content []byte) string {
 	for _, tok := range tokens {
 		switch tok.Type {
 		case lexer.TokenTag:
-			sb.WriteString(tagStyle.Render(tok.Value))
+			sb.WriteString(tagStyle.Render(strings.TrimPrefix(tok.Value, "=")))
 		case lexer.TokenProject:
-			sb.WriteString(projStyle.Render(tok.Value))
-		case lexer.TokenDate:
+			sb.WriteString(projStyle.Render(strings.TrimPrefix(tok.Value, "=")))
+		case lexer.TokenDate, lexer.TokenDue, lexer.TokenTime:
 			sb.WriteString(dateStyle.Render(tok.Value))
 		case lexer.TokenText:
 			sb.WriteString(tok.Value)
@@ -143,7 +145,9 @@ func injectEmphasis(content []byte) string {
 	var sb strings.Builder
 	for _, tok := range tokens {
 		switch tok.Type {
-		case lexer.TokenTag, lexer.TokenProject, lexer.TokenDate:
+		case lexer.TokenTag, lexer.TokenProject:
+			sb.WriteString("`" + strings.TrimPrefix(tok.Value, "=") + "`")
+		case lexer.TokenDate, lexer.TokenDue, lexer.TokenTime:
 			sb.WriteString("`" + tok.Value + "`")
 		case lexer.TokenText:
 			sb.WriteString(tok.Value)
@@ -159,6 +163,23 @@ func fixedPreview(preview string) string {
 		lines[previewHeight-1] = ansi.Truncate(lines[previewHeight-1], cardContentWidth-3, "") + "..."
 	}
 	return strings.Join(lines, "\n")
+}
+
+func formatTimeTracking(entries map[string]float64) string {
+	if len(entries) == 0 {
+		return ""
+	}
+	ids := make([]string, 0, len(entries))
+	for id := range entries {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	parts := make([]string, 0, len(ids))
+	for _, id := range ids {
+		parts = append(parts, fmt.Sprintf("%s %.2gh", id, entries[id]))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func contains(slice []string, val string) bool {
@@ -195,6 +216,7 @@ func (m *model) loadAll() {
 		var tags []string
 		var fileDate time.Time
 		var dueDate time.Time
+		timeTracked := make(map[string]float64)
 		hasDate := false
 
 		for _, tok := range tokens {
@@ -202,14 +224,20 @@ func (m *model) loadAll() {
 				projects = append(projects, tok.Value)
 			} else if tok.Type == lexer.TokenTag {
 				tags = append(tags, tok.Value)
-			} else if tok.Type == lexer.TokenDate {
+			} else if tok.Type == lexer.TokenTime {
+				if _, id, hours, err := lexer.ParseTimeTrackingDate(tok.Value); err == nil {
+					timeTracked[id] += hours
+				}
+			} else if tok.Type == lexer.TokenDue {
 				if due, err := lexer.ParseDueDate(tok.Value); err == nil {
 					if dueDate.IsZero() || due.Before(dueDate) {
 						dueDate = due
 					}
-				} else if t, err := lexer.ParseDate(tok.Value); err == nil {
-					if !hasDate || t.After(fileDate) {
-						fileDate = t
+				}
+			} else if tok.Type == lexer.TokenDate {
+				if date, err := lexer.ParseDate(tok.Value); err == nil {
+					if !hasDate || date.After(fileDate) {
+						fileDate = date
 						hasDate = true
 					}
 				}
@@ -223,12 +251,13 @@ func (m *model) loadAll() {
 		}
 
 		note := Note{
-			Filename: entry.Name(),
-			Preview:  rendered,
-			Time:     fileDate,
-			Due:      dueDate,
-			Projects: projects,
-			Tags:     tags,
+			Filename:    entry.Name(),
+			Preview:     rendered,
+			Time:        fileDate,
+			Due:         dueDate,
+			TimeTracked: timeTracked,
+			Projects:    projects,
+			Tags:        tags,
 		}
 		m.allNotes = append(m.allNotes, note)
 	}
@@ -246,7 +275,7 @@ func (m *model) refreshProjects() {
 		oldProj = m.projects[m.projectIdx]
 	}
 
-	m.projects = []string{allProjects, dueNotes}
+	m.projects = []string{allProjects, dueNotes, timeTrackingNotes}
 	projSet := make(map[string]bool)
 	for _, n := range m.allNotes {
 		for _, p := range n.Projects {
@@ -281,7 +310,10 @@ func (m *model) refreshTags() {
 		if proj == dueNotes && n.Due.IsZero() {
 			continue
 		}
-		if proj != allProjects && proj != dueNotes && !contains(n.Projects, proj) {
+		if proj == timeTrackingNotes && len(n.TimeTracked) == 0 {
+			continue
+		}
+		if proj != allProjects && proj != dueNotes && proj != timeTrackingNotes && !contains(n.Projects, proj) {
 			continue
 		}
 		for _, t := range n.Tags {
@@ -317,7 +349,10 @@ func (m *model) refreshGrid() {
 		if proj == dueNotes && n.Due.IsZero() {
 			continue
 		}
-		if proj != allProjects && proj != dueNotes && !contains(n.Projects, proj) {
+		if proj == timeTrackingNotes && len(n.TimeTracked) == 0 {
+			continue
+		}
+		if proj != allProjects && proj != dueNotes && proj != timeTrackingNotes && !contains(n.Projects, proj) {
 			continue
 		}
 		if tag != "All Tags" && !contains(n.Tags, tag) {
@@ -457,13 +492,19 @@ func (m *model) generateGrid() string {
 			Foreground(lipgloss.Color("237")).
 			Render(strings.Repeat("─", cardContentWidth))
 
+		previewContent := file.Preview
+		if tracking := formatTimeTracking(file.TimeTracked); tracking != "" {
+			summary := lipgloss.NewStyle().Foreground(lipgloss.Color("150")).Render("Time: " + tracking)
+			previewContent = summary + "\n" + previewContent
+		}
+
 		// Wrap and truncate before rendering so ANSI-styled content cannot expand
 		// a card past its fixed height.
 		preview := lipgloss.NewStyle().
 			Width(cardContentWidth).
 			Height(previewHeight).
 			MaxHeight(previewHeight).
-			Render(fixedPreview(file.Preview))
+			Render(fixedPreview(previewContent))
 		content := lipgloss.JoinVertical(lipgloss.Left, header, divider, preview)
 
 		style := lipgloss.NewStyle().
@@ -614,6 +655,16 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.state == stateFiles {
 				for i, project := range m.projects {
 					if project == dueNotes {
+						m.projectIdx = i
+						m.refreshTags()
+						break
+					}
+				}
+			}
+		case "t":
+			if m.state == stateFiles {
+				for i, project := range m.projects {
+					if project == timeTrackingNotes {
 						m.projectIdx = i
 						m.refreshTags()
 						break
@@ -827,6 +878,6 @@ func (m *model) View() string {
 	grid := m.viewport.View()
 	mainArea := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, grid)
 
-	help = helpStyle.Render("Keys: [tab] switch pane | [h/l] cycle projects | [j/k] cycle tags/notes | [d]ue | [c]reate | [enter] select | [q]uit")
+	help = helpStyle.Render("Keys: [tab] switch pane | [h/l] cycle projects | [j/k] cycle tags/notes | [d]ue | [t]ime | [c]reate | [enter] select | [q]uit")
 	return fmt.Sprintf("%s\n\n%s\n%s", header, mainArea, help)
 }
