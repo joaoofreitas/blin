@@ -254,6 +254,10 @@ func contains(slice []string, val string) bool {
 	return false
 }
 
+func displayMetadata(value string) string {
+	return strings.TrimPrefix(value, "=")
+}
+
 func (m *model) loadAll() {
 	m.allNotes = []Note{}
 	entries, err := os.ReadDir(m.folder)
@@ -475,7 +479,7 @@ func (m *model) renderSidebar() string {
 	if m.focus == 0 {
 		arrows = "◀ %s ▶"
 	}
-	header := headerStyle.Render(fmt.Sprintf(arrows, m.projects[m.projectIdx]))
+	header := headerStyle.Render(fmt.Sprintf(arrows, displayMetadata(m.projects[m.projectIdx])))
 
 	var body []string
 	for i, t := range m.tags {
@@ -494,7 +498,7 @@ func (m *model) renderSidebar() string {
 		} else {
 			style = style.Foreground(lipgloss.Color("240"))
 		}
-		body = append(body, style.Render(prefix+t))
+		body = append(body, style.Render(prefix+displayMetadata(t)))
 	}
 
 	sidebarStyle := lipgloss.NewStyle().
@@ -935,8 +939,8 @@ func (m *model) View() string {
 	case stateFiles:
 		header = headerStyle.Render(fmt.Sprintf(
 			"Workspace  %s / %s  %d notes",
-			m.projects[m.projectIdx],
-			m.selectedTag,
+			displayMetadata(m.projects[m.projectIdx]),
+			displayMetadata(m.selectedTag),
 			len(m.filtered),
 		))
 	case stateMarkdown:
