@@ -91,6 +91,9 @@ go run ../cmd/cli -due
 # Print time entries and totals
 go run ../cmd/cli -time-tracked
 
+# Paginate note output
+go run ../cmd/cli -per-page 5 -page 2
+
 # Print one note
 go run ../cmd/cli -view weekly-planning
 

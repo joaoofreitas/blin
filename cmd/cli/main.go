@@ -31,10 +31,12 @@ type TimeTotal struct {
 
 const (
 	resetColor   = "\033[0m"
-	tagColor     = "\033[38;5;205m"
+	tagColor     = "\033[38;5;203m"
 	projectColor = "\033[38;5;43m"
 	dateColor    = "\033[38;5;150m"
-	headerColor  = "\033[1;38;5;255;48;5;24m"
+	headerColor  = "\033[1;38;5;255;48;2;34;139;34m"
+	sectionColor = "\033[1;38;5;203m"
+	timeColor    = "\033[38;5;214m"
 )
 
 func main() {
@@ -54,6 +56,8 @@ func main() {
 	view := flag.String("view", "", "Render a note by filename")
 	create := flag.String("create", "", "Create a note (extension is optional)")
 	content := flag.String("content", "", "Content for -create")
+	page := flag.Int("page", 1, "Page number when using -per-page")
+	perPage := flag.Int("per-page", 0, "Notes per page; 0 disables pagination")
 
 	flag.Parse()
 
@@ -83,7 +87,7 @@ func main() {
 		if err != nil {
 			fatal(err)
 		}
-		printDueNotes(dueNotes(filterNotes(notes, *filterTag, *filterProject)))
+		printDueNotes(dueNotes(filterNotes(notes, *filterTag, *filterProject)), *page, *perPage)
 	case *timeTracked:
 		notes, err := loadNotes(*folder)
 		if err != nil {
@@ -95,13 +99,13 @@ func main() {
 		if err != nil {
 			fatal(err)
 		}
-		printRawNotes(filterNotes(notes, *filterTag, *filterProject))
+		printRawNotes(filterNotes(notes, *filterTag, *filterProject), *page, *perPage)
 	default:
 		notes, err := loadNotes(*folder)
 		if err != nil {
 			fatal(err)
 		}
-		printNotes(filterNotes(notes, *filterTag, *filterProject))
+		printNotes(filterNotes(notes, *filterTag, *filterProject), *page, *perPage)
 	}
 }
 
@@ -241,16 +245,57 @@ func listValues(values []string) {
 	}
 }
 
-func printNotes(notes []Note) {
-	printNoteContents(notes, false)
+func printNotes(notes []Note, page, perPage int) {
+	printPagedNotes(notes, false, page, perPage)
 }
 
-func printRawNotes(notes []Note) {
-	printNoteContents(notes, false)
+func printRawNotes(notes []Note, page, perPage int) {
+	printPagedNotes(notes, false, page, perPage)
 }
 
-func printDueNotes(notes []Note) {
-	printNoteContents(notes, true)
+func printDueNotes(notes []Note, page, perPage int) {
+	printPagedNotes(notes, true, page, perPage)
+}
+
+func printPagedNotes(notes []Note, showDue bool, page, perPage int) {
+	pageNotes, currentPage, totalPages, err := paginateNotes(notes, page, perPage)
+	if err != nil {
+		fatal(err)
+	}
+	printNoteContents(pageNotes, showDue)
+	if perPage > 0 {
+		fmt.Printf("\n%sPage %d of %d%s\n", sectionColor, currentPage, totalPages, resetColor)
+	}
+}
+
+func paginateNotes(notes []Note, page, perPage int) ([]Note, int, int, error) {
+	if perPage == 0 {
+		return notes, 0, 0, nil
+	}
+	if perPage < 1 {
+		return nil, 0, 0, errors.New("per-page must be greater than zero")
+	}
+	if page < 1 {
+		return nil, 0, 0, errors.New("page must be greater than zero")
+	}
+
+	totalPages := (len(notes) + perPage - 1) / perPage
+	if totalPages == 0 {
+		totalPages = 1
+	}
+	if page > totalPages {
+		return nil, 0, 0, fmt.Errorf("page %d does not exist; only %d page(s) available", page, totalPages)
+	}
+
+	start := (page - 1) * perPage
+	if start >= len(notes) {
+		return nil, page, totalPages, nil
+	}
+	end := start + perPage
+	if end > len(notes) {
+		end = len(notes)
+	}
+	return notes[start:end], page, totalPages, nil
 }
 
 func printNoteContents(notes []Note, showDue bool) {
@@ -267,7 +312,7 @@ func printNoteContents(notes []Note, showDue bool) {
 		tracking := formatTimeTracking(note.TimeTracked)
 		fmt.Printf("%s %s  %s %s%s\n", headerColor, note.Name, label, date.Format("2006-01-02"), resetColor)
 		if tracking != "" {
-			fmt.Printf("TIME %s\n", tracking)
+			fmt.Printf("%sTIME%s %s\n", timeColor, resetColor, tracking)
 		}
 		fmt.Print(colorizeMarkdown(note.Content))
 		if len(note.Content) == 0 || note.Content[len(note.Content)-1] != '\n' {
@@ -329,7 +374,7 @@ func printTimeTrackingTotals(notes []Note) {
 		}
 	}
 
-	fmt.Println("ID                    TOTAL    LAST TRACKED")
+	fmt.Printf("%sID                    TOTAL    LAST TRACKED%s\n", sectionColor, resetColor)
 	ids := make([]string, 0, len(totals))
 	for id := range totals {
 		ids = append(ids, id)
