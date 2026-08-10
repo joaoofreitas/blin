@@ -153,8 +153,8 @@ func (m *model) buildTimeTrackingTable() {
 	}
 
 	styles := table.DefaultStyles()
-	styles.Header = styles.Header.Foreground(lipgloss.Color("205")).Bold(true)
-	styles.Selected = styles.Selected.Foreground(lipgloss.Color("212")).Bold(true)
+	styles.Header = styles.Header.Foreground(lipgloss.Color("203")).Bold(true)
+	styles.Selected = styles.Selected.Foreground(lipgloss.Color("214")).Bold(true)
 
 	height := m.height - 4
 	if height < 1 {
@@ -178,7 +178,7 @@ func renderPreview(content []byte) string {
 	tokens := lexer.New(string(content)).Run()
 	var sb strings.Builder
 
-	tagStyle := lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("205"))
+	tagStyle := lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("203"))
 	projStyle := lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("43"))
 	dateStyle := lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("150"))
 
@@ -464,7 +464,7 @@ func (m *model) viewMarkdown(filename string) {
 func (m *model) renderSidebar() string {
 	w := sidebarWidth
 
-	projColor := lipgloss.Color("205")
+	projColor := lipgloss.Color("203")
 	if m.focus != 0 {
 		projColor = lipgloss.Color("240")
 	}
@@ -487,7 +487,7 @@ func (m *model) renderSidebar() string {
 		style := lipgloss.NewStyle().Width(w)
 		if i == m.tagIdx {
 			if m.focus == 0 {
-				style = style.Foreground(lipgloss.Color("212")).Bold(true)
+				style = style.Foreground(lipgloss.Color("214")).Bold(true)
 			} else {
 				style = style.Foreground(lipgloss.Color("245")) // dimmer selection
 			}
@@ -584,7 +584,7 @@ func (m *model) generateGrid() string {
 
 		if i == m.gridCursor {
 			if m.focus == 1 {
-				style = style.BorderForeground(lipgloss.Color("205"))
+				style = style.BorderForeground(lipgloss.Color("203"))
 			} else {
 				style = style.BorderForeground(lipgloss.Color("240"))
 			}
@@ -928,12 +928,17 @@ func (m *model) View() string {
 		return "\n  Initializing..."
 	}
 
-	headerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Bold(true)
+	headerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true)
 	header := ""
 
 	switch m.state {
 	case stateFiles:
-		header = headerStyle.Render("Workspace")
+		header = headerStyle.Render(fmt.Sprintf(
+			"Workspace  %s / %s  %d notes",
+			m.projects[m.projectIdx],
+			m.selectedTag,
+			len(m.filtered),
+		))
 	case stateMarkdown:
 		if len(m.filtered) > 0 {
 			header = headerStyle.Render("Viewing: " + m.filtered[m.gridCursor].Filename)
@@ -943,7 +948,7 @@ func (m *model) View() string {
 	case stateEdit:
 		header = headerStyle.Render("Edit Note")
 	case stateTimeTracking:
-		header = headerStyle.Render("Time Tracking")
+		header = headerStyle.Render(fmt.Sprintf("Time Tracking  %d IDs", len(m.timeTable.Rows())))
 	}
 
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
