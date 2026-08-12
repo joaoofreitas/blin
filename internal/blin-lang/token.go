@@ -12,6 +12,7 @@ const (
 	TokenDate    // =YYYYMMDD
 	TokenDue     // =due:YYYYMMDD
 	TokenTime    // =tt:YYYYMMDD:(ID:hours)
+	TokenBlin    // =blin:name
 )
 
 type Token struct {

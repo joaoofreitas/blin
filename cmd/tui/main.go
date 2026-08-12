@@ -51,6 +51,7 @@ type Note struct {
 	TimeTracked map[string]TimeTotal
 	Projects    []string
 	Tags        []string
+	FileRefs    []string
 }
 
 type TimeTotal struct {
@@ -181,6 +182,7 @@ func renderPreview(content []byte) string {
 	tagStyle := lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("203"))
 	projStyle := lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("43"))
 	dateStyle := lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("150"))
+	refStyle := lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("31"))
 
 	for _, tok := range tokens {
 		switch tok.Type {
@@ -190,6 +192,8 @@ func renderPreview(content []byte) string {
 			sb.WriteString(projStyle.Render(strings.TrimPrefix(tok.Value, "=")))
 		case lexer.TokenDate, lexer.TokenDue, lexer.TokenTime:
 			sb.WriteString(dateStyle.Render(tok.Value))
+		case lexer.TokenBlin:
+			sb.WriteString(refStyle.Render(tok.Value))
 		case lexer.TokenText:
 			sb.WriteString(tok.Value)
 		}
@@ -209,9 +213,17 @@ func injectEmphasis(content []byte) string {
 	for _, tok := range tokens {
 		switch tok.Type {
 		case lexer.TokenTag, lexer.TokenProject:
-			sb.WriteString("`" + strings.TrimPrefix(tok.Value, "=") + "`")
+			sb.WriteString("`")
+			sb.WriteString(strings.TrimPrefix(tok.Value, "="))
+			sb.WriteString("`")
 		case lexer.TokenDate, lexer.TokenDue, lexer.TokenTime:
-			sb.WriteString("`" + tok.Value + "`")
+			sb.WriteString("`")
+			sb.WriteString(tok.Value)
+			sb.WriteString("`")
+		case lexer.TokenBlin:
+			sb.WriteString("`")
+			sb.WriteString(tok.Value)
+			sb.WriteString("`")
 		case lexer.TokenText:
 			sb.WriteString(tok.Value)
 		}
@@ -281,17 +293,19 @@ func (m *model) loadAll() {
 
 		var projects []string
 		var tags []string
+		var file_refs []string
 		var fileDate time.Time
 		var dueDate time.Time
 		timeTracked := make(map[string]TimeTotal)
 		hasDate := false
 
 		for _, tok := range tokens {
-			if tok.Type == lexer.TokenProject {
+			switch tok.Type {
+			case lexer.TokenProject:
 				projects = append(projects, tok.Value)
-			} else if tok.Type == lexer.TokenTag {
+			case lexer.TokenTag:
 				tags = append(tags, tok.Value)
-			} else if tok.Type == lexer.TokenTime {
+			case lexer.TokenTime:
 				if date, id, hours, err := lexer.ParseTimeTrackingDate(tok.Value); err == nil {
 					total := timeTracked[id]
 					total.Hours += hours
@@ -300,18 +314,22 @@ func (m *model) loadAll() {
 					}
 					timeTracked[id] = total
 				}
-			} else if tok.Type == lexer.TokenDue {
+			case lexer.TokenDue:
 				if due, err := lexer.ParseDueDate(tok.Value); err == nil {
 					if dueDate.IsZero() || due.Before(dueDate) {
 						dueDate = due
 					}
 				}
-			} else if tok.Type == lexer.TokenDate {
+			case lexer.TokenDate:
 				if date, err := lexer.ParseDate(tok.Value); err == nil {
 					if !hasDate || date.After(fileDate) {
 						fileDate = date
 						hasDate = true
 					}
+				}
+			case lexer.TokenBlin:
+				if file_ref, err := lexer.ParseBlin(tok.Value); err == nil {
+					file_refs = append(file_refs, file_ref)
 				}
 			}
 		}
@@ -330,6 +348,7 @@ func (m *model) loadAll() {
 			TimeTracked: timeTracked,
 			Projects:    projects,
 			Tags:        tags,
+			FileRefs:    file_refs,
 		}
 		m.allNotes = append(m.allNotes, note)
 	}
@@ -568,6 +587,12 @@ func (m *model) generateGrid() string {
 		if tracking := formatTimeTracking(file.TimeTracked); tracking != "" {
 			summary := lipgloss.NewStyle().Foreground(lipgloss.Color("150")).Render("Time: " + tracking)
 			previewContent = summary + "\n" + previewContent
+		}
+
+		// References to other files in blue
+		if references := file.FileRefs; len(references) > 0 {
+			refs := lipgloss.NewStyle().Foreground(lipgloss.Color("31")).Render("Mentions: " + strings.Join(references, ", "))
+			previewContent = refs + "\n" + previewContent
 		}
 
 		// Wrap and truncate before rendering so ANSI-styled content cannot expand

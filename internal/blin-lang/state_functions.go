@@ -47,6 +47,10 @@ func lexSymbol(l *Lexer) stateFn {
 	if strings.HasPrefix(l.input[l.start:], "=tt:") {
 		return lexMetadata(TokenTime)
 	}
+
+	if strings.HasPrefix(l.input[l.start:], "=blin:") {
+		return lexMetadata(TokenBlin)
+	}
 	return lexMetadata(TokenDate)
 }
 
