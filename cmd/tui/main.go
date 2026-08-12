@@ -18,6 +18,8 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+
+	. "github.com/joaoofreitas/blin/internal"
 	lexer "github.com/joaoofreitas/blin/internal/blin-lang"
 )
 
@@ -43,22 +45,6 @@ const (
 	dueNotes          = "Due"
 	timeTrackingNotes = "Time Tracking"
 )
-
-type Note struct {
-	Filename    string
-	Preview     string
-	Time        time.Time
-	Due         time.Time
-	TimeTracked map[string]TimeTotal
-	Projects    []string
-	Tags        []string
-	FileRefs    []string
-}
-
-type TimeTotal struct {
-	Hours float64
-	Last  time.Time
-}
 
 type model struct {
 	state    viewState
@@ -331,8 +317,8 @@ func (m *model) loadAll() {
 		}
 
 		note := Note{
-			Filename:    entry.Name(),
-			Preview:     rendered,
+			Name:        entry.Name(),
+			Content:     rendered,
 			Time:        fileDate,
 			Due:         dueDate,
 			TimeTracked: timeTracked,
@@ -550,7 +536,7 @@ func (m *model) generateGrid() string {
 
 		titleWidth := max(cardContentWidth-lipgloss.Width(dateLine), 5)
 
-		fname := file.Filename
+		fname := file.Name
 		if len(fname) > titleWidth-4 {
 			fname = fname[:titleWidth-5] + "..."
 		}
@@ -567,7 +553,7 @@ func (m *model) generateGrid() string {
 			Foreground(lipgloss.Color("237")).
 			Render(strings.Repeat("─", cardContentWidth))
 
-		previewContent := file.Preview
+		previewContent := file.Content
 		if tracking := formatTimeTracking(file.TimeTracked); tracking != "" {
 			summary := lipgloss.NewStyle().Foreground(lipgloss.Color("150")).Render("Time: " + tracking)
 			previewContent = summary + "\n" + previewContent
@@ -736,7 +722,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case editorFinishedMsg:
 		m.loadAll()
 		if len(m.filtered) > 0 {
-			m.viewMarkdown(m.filtered[m.gridCursor].Filename)
+			m.viewMarkdown(m.filtered[m.gridCursor].Name)
 		}
 		return m, tea.ClearScreen
 	case tea.KeyMsg:
@@ -851,7 +837,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "e":
 			if m.state == stateMarkdown {
 				m.state = stateEdit
-				fname := m.filtered[m.gridCursor].Filename
+				fname := m.filtered[m.gridCursor].Name
 				m.originalEditFilename = fname
 
 				displayname := strings.TrimSuffix(fname, ".md")
@@ -872,7 +858,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if editor == "" {
 					editor = "vim"
 				}
-				cmd := exec.Command(editor, filepath.Join(m.folder, m.filtered[m.gridCursor].Filename))
+				cmd := exec.Command(editor, filepath.Join(m.folder, m.filtered[m.gridCursor].Name))
 				return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
 					return editorFinishedMsg{err}
 				})
@@ -892,7 +878,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if len(m.filtered) > 0 {
 						m.state = stateMarkdown
 						m.viewport.Width = m.width // Full width for Markdown read
-						m.viewMarkdown(m.filtered[m.gridCursor].Filename)
+						m.viewMarkdown(m.filtered[m.gridCursor].Name)
 					}
 				}
 			}
@@ -947,7 +933,7 @@ func (m *model) View() string {
 		))
 	case stateMarkdown:
 		if len(m.filtered) > 0 {
-			header = headerStyle.Render("Viewing: " + m.filtered[m.gridCursor].Filename)
+			header = headerStyle.Render("Viewing: " + m.filtered[m.gridCursor].Name)
 		}
 	case stateCreate:
 		header = headerStyle.Render("Create New Note")

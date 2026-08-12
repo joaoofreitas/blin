@@ -10,26 +10,10 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"time"
 
+	. "github.com/joaoofreitas/blin/internal"
 	lexer "github.com/joaoofreitas/blin/internal/blin-lang"
 )
-
-type Note struct {
-	Name        string
-	Time        time.Time
-	Due         time.Time
-	TimeTracked map[string]TimeTotal
-	Content     []byte
-	Tags        []string
-	Projects    []string
-	FileRefs    []string
-}
-
-type TimeTotal struct {
-	Hours float64
-	Last  time.Time
-}
 
 const (
 	resetColor   = "\033[0m"
@@ -135,7 +119,7 @@ func loadNotes(folder string) ([]Note, error) {
 			return nil, fmt.Errorf("read %s: %w", path, err)
 		}
 
-		note := Note{Name: entry.Name(), Content: content}
+		note := Note{Name: entry.Name(), Content: string(content)}
 		note.TimeTracked = make(map[string]TimeTotal)
 		tokens := lexer.New(string(content)).Run()
 		for _, tok := range tokens {
@@ -327,7 +311,7 @@ func printNoteContents(notes []Note, showDue bool) {
 		if tracking != "" {
 			fmt.Printf("%sTime Track%s %s\n", timeColor, resetColor, tracking)
 		}
-		fmt.Print(colorizeMarkdown(note.Content))
+		fmt.Print(colorizeMarkdown([]byte(note.Content)))
 		if len(note.Content) == 0 || note.Content[len(note.Content)-1] != '\n' {
 			fmt.Println()
 		}
@@ -387,7 +371,7 @@ func printTimeTrackingTotals(notes []Note) {
 		}
 	}
 
-	fmt.Printf("%sID                    TOTAL    LAST TRACKED%s\n", sectionColor, resetColor)
+	fmt.Printf("%sNAME                    TOTAL    LAST TRACKED%s\n", sectionColor, resetColor)
 	ids := make([]string, 0, len(totals))
 	for id := range totals {
 		ids = append(ids, id)
