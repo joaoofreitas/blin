@@ -23,6 +23,7 @@ type Note struct {
 	Content     []byte
 	Tags        []string
 	Projects    []string
+	FileRefs    []string
 }
 
 type TimeTotal struct {
@@ -38,6 +39,7 @@ const (
 	headerColor  = "\033[1;38;5;255;48;2;34;139;34m"
 	sectionColor = "\033[1;38;5;203m"
 	timeColor    = "\033[38;5;214m"
+	refColor     = "\033[38;5;75m"
 )
 
 func main() {
@@ -165,6 +167,13 @@ func loadNotes(folder string) ([]Note, error) {
 				if note.Due.IsZero() || dueDate.Before(note.Due) {
 					note.Due = dueDate
 				}
+			case lexer.TokenBlin:
+				file_ref, err := lexer.ParseBlin(tok.Value)
+				if err != nil {
+					return nil, fmt.Errorf("parse blin reference in %s: %w", path, err)
+				}
+				note.FileRefs = append(note.FileRefs, file_ref)
+
 			case lexer.TokenDate:
 				if date, err := lexer.ParseDate(tok.Value); err == nil && date.After(note.Time) {
 					note.Time = date
@@ -200,15 +209,6 @@ func filterNotes(notes []Note, tag, project string) []Note {
 		filtered = append(filtered, note)
 	}
 	return filtered
-}
-
-func contains(values []string, value string) bool {
-	for _, item := range values {
-		if item == value {
-			return true
-		}
-	}
-	return false
 }
 
 func tagsForNotes(notes []Note) []string {
@@ -307,10 +307,25 @@ func printNoteContents(notes []Note, showDue bool) {
 			date = note.Due
 			label = "DUE"
 		}
-		tracking := formatTimeTracking(note.TimeTracked)
+
 		fmt.Printf("%s %s  %s %s%s\n", headerColor, note.Name, label, date.Format("2006-01-02"), resetColor)
+
+		if len(note.FileRefs) > 0 {
+			fmt.Printf("%sMentions:%s", refColor, resetColor)
+			for i, ref := range note.FileRefs {
+				fmt.Printf(" %s", ref)
+				if i < len(note.FileRefs)-1 {
+					fmt.Print(",")
+				} else {
+					fmt.Println()
+				}
+			}
+
+		}
+
+		tracking := formatTimeTracking(note.TimeTracked)
 		if tracking != "" {
-			fmt.Printf("%sTIME%s %s\n", timeColor, resetColor, tracking)
+			fmt.Printf("%sTime Track%s %s\n", timeColor, resetColor, tracking)
 		}
 		fmt.Print(colorizeMarkdown(note.Content))
 		if len(note.Content) == 0 || note.Content[len(note.Content)-1] != '\n' {
@@ -420,6 +435,10 @@ func colorizeMarkdown(content []byte) string {
 		case lexer.TokenDate, lexer.TokenDue, lexer.TokenTime:
 			builder.WriteString(dateColor)
 			builder.WriteString(token.Value)
+			builder.WriteString(resetColor)
+		case lexer.TokenBlin:
+			builder.WriteString(refColor)
+			builder.WriteString(strings.TrimPrefix(token.Value, "=blin:"))
 			builder.WriteString(resetColor)
 		case lexer.TokenText:
 			builder.WriteString(token.Value)
