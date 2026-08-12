@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -157,10 +158,8 @@ func (m *model) buildTimeTrackingTable() {
 	styles.Header = styles.Header.Foreground(lipgloss.Color("203")).Bold(true)
 	styles.Selected = styles.Selected.Foreground(lipgloss.Color("214")).Bold(true)
 
-	height := m.height - 4
-	if height < 1 {
-		height = 1
-	}
+	height := max(m.height-4, 1)
+
 	m.timeTable = table.New(
 		table.WithColumns([]table.Column{
 			{Title: "ID", Width: 24},
@@ -255,15 +254,6 @@ func formatTimeTracking(entries map[string]TimeTotal) string {
 		parts = append(parts, fmt.Sprintf("%s %.2gh", id, entries[id].Hours))
 	}
 	return strings.Join(parts, ", ")
-}
-
-func contains(slice []string, val string) bool {
-	for _, item := range slice {
-		if item == val {
-			return true
-		}
-	}
-	return false
 }
 
 func displayMetadata(value string) string {
@@ -404,7 +394,7 @@ func (m *model) refreshTags() {
 		if proj == timeTrackingNotes && len(n.TimeTracked) == 0 {
 			continue
 		}
-		if proj != allProjects && proj != dueNotes && proj != timeTrackingNotes && !contains(n.Projects, proj) {
+		if proj != allProjects && proj != dueNotes && proj != timeTrackingNotes && !slices.Contains(n.Projects, proj) {
 			continue
 		}
 		for _, t := range n.Tags {
@@ -443,10 +433,10 @@ func (m *model) refreshGrid() {
 		if proj == timeTrackingNotes && len(n.TimeTracked) == 0 {
 			continue
 		}
-		if proj != allProjects && proj != dueNotes && proj != timeTrackingNotes && !contains(n.Projects, proj) {
+		if proj != allProjects && proj != dueNotes && proj != timeTrackingNotes && !slices.Contains(n.Projects, proj) {
 			continue
 		}
-		if tag != "All Tags" && !contains(n.Tags, tag) {
+		if tag != "All Tags" && !slices.Contains(n.Tags, tag) {
 			continue
 		}
 		m.filtered = append(m.filtered, n)
@@ -536,10 +526,7 @@ func (m *model) generateGrid() string {
 		return lipgloss.NewStyle().PaddingLeft(2).Render("No notes found for this filter.")
 	}
 
-	cols := m.viewport.Width / (cardWidth + 2)
-	if cols < 1 {
-		cols = 1
-	}
+	cols := max(m.viewport.Width/(cardWidth+2), 1)
 
 	var rows []string
 	var currentRow []string
@@ -561,10 +548,7 @@ func (m *model) generateGrid() string {
 			Foreground(lipgloss.Color("240")).
 			Render(dateStr)
 
-		titleWidth := cardContentWidth - lipgloss.Width(dateLine)
-		if titleWidth < 5 {
-			titleWidth = 5
-		}
+		titleWidth := max(cardContentWidth-lipgloss.Width(dateLine), 5)
 
 		fname := file.Filename
 		if len(fname) > titleWidth-4 {
@@ -634,10 +618,7 @@ func (m *model) generateGrid() string {
 
 func (m *model) syncViewport() {
 	if m.state == stateFiles {
-		cols := m.viewport.Width / (cardWidth + 2)
-		if cols < 1 {
-			cols = 1
-		}
+		cols := max(m.viewport.Width/(cardWidth+2), 1)
 		cursorRow := m.gridCursor / cols
 
 		top := cursorRow * cardHeight
@@ -828,7 +809,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case "up", "k":
-			if m.state == stateFiles {
+			switch m.state {
+			case stateFiles:
 				if m.focus == 0 {
 					if m.tagIdx > 0 {
 						m.tagIdx--
@@ -836,21 +818,19 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.refreshGrid()
 					}
 				} else {
-					cols := m.viewport.Width / 40
-					if cols < 1 {
-						cols = 1
-					}
+					cols := max(m.viewport.Width/40, 1)
 					if m.gridCursor >= cols {
 						m.gridCursor -= cols
 						m.syncViewport()
 						m.updateViewportContent()
 					}
 				}
-			} else if m.state == stateMarkdown {
+			case stateMarkdown:
 				m.viewport, cmd = m.viewport.Update(msg)
 			}
 		case "down", "j":
-			if m.state == stateFiles {
+			switch m.state {
+			case stateFiles:
 				if m.focus == 0 {
 					if m.tagIdx < len(m.tags)-1 {
 						m.tagIdx++
@@ -858,17 +838,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.refreshGrid()
 					}
 				} else {
-					cols := m.viewport.Width / 40
-					if cols < 1 {
-						cols = 1
-					}
+					cols := max(m.viewport.Width/40, 1)
 					if m.gridCursor+cols < len(m.filtered) {
 						m.gridCursor += cols
 						m.syncViewport()
 						m.updateViewportContent()
 					}
 				}
-			} else if m.state == stateMarkdown {
+			case stateMarkdown:
 				m.viewport, cmd = m.viewport.Update(msg)
 			}
 		case "e":

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -138,11 +139,11 @@ func loadNotes(folder string) ([]Note, error) {
 		for _, tok := range tokens {
 			switch tok.Type {
 			case lexer.TokenTag:
-				if !contains(note.Tags, tok.Value) {
+				if !slices.Contains(note.Tags, tok.Value) {
 					note.Tags = append(note.Tags, tok.Value)
 				}
 			case lexer.TokenProject:
-				if !contains(note.Projects, tok.Value) {
+				if !slices.Contains(note.Projects, tok.Value) {
 					note.Projects = append(note.Projects, tok.Value)
 				}
 			case lexer.TokenTime:
@@ -190,10 +191,10 @@ func loadNotes(folder string) ([]Note, error) {
 func filterNotes(notes []Note, tag, project string) []Note {
 	var filtered []Note
 	for _, note := range notes {
-		if tag != "" && !contains(note.Tags, tag) {
+		if tag != "" && !slices.Contains(note.Tags, tag) {
 			continue
 		}
-		if project != "" && !contains(note.Projects, project) {
+		if project != "" && !slices.Contains(note.Projects, project) {
 			continue
 		}
 		filtered = append(filtered, note)
@@ -291,10 +292,7 @@ func paginateNotes(notes []Note, page, perPage int) ([]Note, int, int, error) {
 	if start >= len(notes) {
 		return nil, page, totalPages, nil
 	}
-	end := start + perPage
-	if end > len(notes) {
-		end = len(notes)
-	}
+	end := min(start+perPage, len(notes))
 	return notes[start:end], page, totalPages, nil
 }
 
