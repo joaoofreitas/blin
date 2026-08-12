@@ -22,6 +22,7 @@ Review the release checklist. =#todo =+work
 | `=YYYYMMDD` | Note date | `=20260808` |
 | `=due:YYYYMMDD` | Due date | `=due:20260815` |
 | `=tt:YYYYMMDD:(ID:hours)` | Time entry | `=tt:20260810:(task-42:2.5h)` |
+| `=blin:filename` | File to Reference | `=blin:todo.md` |
 
 Dates may contain `/` or `-`; blin removes those separators before parsing. Notes sort newest first. A valid note date takes precedence over the file modification time. Due dates are kept separately and sort earliest first.
 
