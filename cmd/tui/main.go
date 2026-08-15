@@ -5,10 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
-	"sort"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textarea"
@@ -19,8 +16,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	. "github.com/joaoofreitas/blin/internal"
 	lexer "github.com/joaoofreitas/blin/internal/blin-lang"
+	"github.com/joaoofreitas/blin/internal/notes"
 )
 
 type editorFinishedMsg struct{ err error }
@@ -48,8 +45,8 @@ const (
 
 type model struct {
 	state    viewState
-	allNotes []Note
-	filtered []Note
+	allNotes []notes.Note
+	filtered []notes.Note
 
 	projects   []string
 	projectIdx int
@@ -108,35 +105,12 @@ func (m *model) Init() tea.Cmd {
 }
 
 func (m *model) buildTimeTrackingTable() {
-	totals := make(map[string]TimeTotal)
-	for _, note := range m.allNotes {
-		for id, total := range note.TimeTracked {
-			aggregate := totals[id]
-			aggregate.Hours += total.Hours
-			if total.Last.After(aggregate.Last) {
-				aggregate.Last = total.Last
-			}
-			totals[id] = aggregate
-		}
-	}
-
-	ids := make([]string, 0, len(totals))
-	for id := range totals {
-		ids = append(ids, id)
-	}
-	sort.Slice(ids, func(i, j int) bool {
-		if totals[ids[i]].Last.Equal(totals[ids[j]].Last) {
-			return ids[i] < ids[j]
-		}
-		return totals[ids[i]].Last.After(totals[ids[j]].Last)
-	})
-	rows := make([]table.Row, 0, len(ids))
-	for _, id := range ids {
-		total := totals[id]
+	rows := make([]table.Row, 0)
+	for _, row := range notes.AggregateTimeTotals(m.allNotes) {
 		rows = append(rows, table.Row{
-			id,
-			fmt.Sprintf("%.2f h", total.Hours),
-			total.Last.Format("2006-01-02"),
+			row.ID,
+			fmt.Sprintf("%.2f h", row.Total.Hours),
+			row.Total.Last.Format("2006-01-02"),
 		})
 	}
 
@@ -172,9 +146,9 @@ func renderPreview(content []byte) string {
 	for _, tok := range tokens {
 		switch tok.Type {
 		case lexer.TokenTag:
-			sb.WriteString(tagStyle.Render(strings.TrimPrefix(tok.Value, "=")))
+			sb.WriteString(tagStyle.Render(notes.DisplayMetadata(tok.Value)))
 		case lexer.TokenProject:
-			sb.WriteString(projStyle.Render(strings.TrimPrefix(tok.Value, "=")))
+			sb.WriteString(projStyle.Render(notes.DisplayMetadata(tok.Value)))
 		case lexer.TokenDate, lexer.TokenDue, lexer.TokenTime:
 			sb.WriteString(dateStyle.Render(tok.Value))
 		case lexer.TokenBlin:
@@ -199,7 +173,7 @@ func injectEmphasis(content []byte) string {
 		switch tok.Type {
 		case lexer.TokenTag, lexer.TokenProject:
 			sb.WriteString("`")
-			sb.WriteString(strings.TrimPrefix(tok.Value, "="))
+			sb.WriteString(notes.DisplayMetadata(tok.Value))
 			sb.WriteString("`")
 		case lexer.TokenDate, lexer.TokenDue, lexer.TokenTime:
 			sb.WriteString("`")
@@ -225,115 +199,28 @@ func fixedPreview(preview string) string {
 	return strings.Join(lines, "\n")
 }
 
-func formatTimeTracking(entries map[string]TimeTotal) string {
-	if len(entries) == 0 {
-		return ""
-	}
-	ids := make([]string, 0, len(entries))
-	for id := range entries {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-
-	parts := make([]string, 0, len(ids))
-	for _, id := range ids {
-		parts = append(parts, fmt.Sprintf("%s %.2gh", id, entries[id].Hours))
-	}
-	return strings.Join(parts, ", ")
-}
-
-func displayMetadata(value string) string {
-	return strings.TrimPrefix(value, "=")
-}
-
 func (m *model) loadAll() {
-	m.allNotes = []Note{}
-	entries, err := os.ReadDir(m.folder)
+	loaded, err := notes.Load(m.folder)
 	if err != nil {
+		m.allNotes = nil
+		m.refreshProjects()
 		return
 	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".md") {
-			continue
-		}
-
-		path := filepath.Join(m.folder, entry.Name())
-		content, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-
-		rendered := renderPreview(content)
-		tokens := lexer.New(string(content)).Run()
-
-		var projects []string
-		var tags []string
-		var file_refs []string
-		var fileDate time.Time
-		var dueDate time.Time
-		timeTracked := make(map[string]TimeTotal)
-		hasDate := false
-
-		for _, tok := range tokens {
-			switch tok.Type {
-			case lexer.TokenProject:
-				projects = append(projects, tok.Value)
-			case lexer.TokenTag:
-				tags = append(tags, tok.Value)
-			case lexer.TokenTime:
-				if date, id, hours, err := lexer.ParseTimeTrackingDate(tok.Value); err == nil {
-					total := timeTracked[id]
-					total.Hours += hours
-					if date.After(total.Last) {
-						total.Last = date
-					}
-					timeTracked[id] = total
-				}
-			case lexer.TokenDue:
-				if due, err := lexer.ParseDueDate(tok.Value); err == nil {
-					if dueDate.IsZero() || due.Before(dueDate) {
-						dueDate = due
-					}
-				}
-			case lexer.TokenDate:
-				if date, err := lexer.ParseDate(tok.Value); err == nil {
-					if !hasDate || date.After(fileDate) {
-						fileDate = date
-						hasDate = true
-					}
-				}
-			case lexer.TokenBlin:
-				if file_ref, err := lexer.ParseBlin(tok.Value); err == nil {
-					file_refs = append(file_refs, file_ref)
-				}
-			}
-		}
-
-		if !hasDate {
-			if info, err := entry.Info(); err == nil {
-				fileDate = info.ModTime()
-			}
-		}
-
-		note := Note{
-			Name:        entry.Name(),
-			Content:     rendered,
-			Time:        fileDate,
-			Due:         dueDate,
-			TimeTracked: timeTracked,
-			Projects:    projects,
-			Tags:        tags,
-			FileRefs:    file_refs,
-		}
-		m.allNotes = append(m.allNotes, note)
-	}
-
-	sort.Slice(m.allNotes, func(i, j int) bool {
-		return m.allNotes[i].Time.After(m.allNotes[j].Time)
-	})
-
+	m.allNotes = loaded
 	m.refreshProjects()
+}
+
+func (m *model) notesForProject(proj string) []notes.Note {
+	switch proj {
+	case allProjects:
+		return m.allNotes
+	case dueNotes:
+		return notes.WithDue(m.allNotes)
+	case timeTrackingNotes:
+		return notes.WithTimeTracked(m.allNotes)
+	default:
+		return notes.Filter(m.allNotes, "", proj)
+	}
 }
 
 func (m *model) refreshProjects() {
@@ -342,19 +229,7 @@ func (m *model) refreshProjects() {
 		oldProj = m.projects[m.projectIdx]
 	}
 
-	m.projects = []string{allProjects, dueNotes, timeTrackingNotes}
-	projSet := make(map[string]bool)
-	for _, n := range m.allNotes {
-		for _, p := range n.Projects {
-			projSet[p] = true
-		}
-	}
-	var pList []string
-	for p := range projSet {
-		pList = append(pList, p)
-	}
-	sort.Strings(pList)
-	m.projects = append(m.projects, pList...)
+	m.projects = append([]string{allProjects, dueNotes, timeTrackingNotes}, notes.Projects(m.allNotes)...)
 
 	m.projectIdx = 0
 	for i, p := range m.projects {
@@ -370,29 +245,8 @@ func (m *model) refreshTags() {
 	oldTag := m.selectedTag
 	proj := m.projects[m.projectIdx]
 
-	m.tags = []string{"All Tags"}
-	tagSet := make(map[string]bool)
-
-	for _, n := range m.allNotes {
-		if proj == dueNotes && n.Due.IsZero() {
-			continue
-		}
-		if proj == timeTrackingNotes && len(n.TimeTracked) == 0 {
-			continue
-		}
-		if proj != allProjects && proj != dueNotes && proj != timeTrackingNotes && !slices.Contains(n.Projects, proj) {
-			continue
-		}
-		for _, t := range n.Tags {
-			tagSet[t] = true
-		}
-	}
-	var tList []string
-	for t := range tagSet {
-		tList = append(tList, t)
-	}
-	sort.Strings(tList)
-	m.tags = append(m.tags, tList...)
+	scoped := m.notesForProject(proj)
+	m.tags = append([]string{"All Tags"}, notes.Tags(scoped)...)
 
 	m.tagIdx = 0
 	m.selectedTag = "All Tags"
@@ -411,26 +265,12 @@ func (m *model) refreshGrid() {
 	proj := m.projects[m.projectIdx]
 	tag := m.selectedTag
 
-	m.filtered = []Note{}
-	for _, n := range m.allNotes {
-		if proj == dueNotes && n.Due.IsZero() {
-			continue
-		}
-		if proj == timeTrackingNotes && len(n.TimeTracked) == 0 {
-			continue
-		}
-		if proj != allProjects && proj != dueNotes && proj != timeTrackingNotes && !slices.Contains(n.Projects, proj) {
-			continue
-		}
-		if tag != "All Tags" && !slices.Contains(n.Tags, tag) {
-			continue
-		}
-		m.filtered = append(m.filtered, n)
+	m.filtered = m.notesForProject(proj)
+	if tag != "All Tags" {
+		m.filtered = notes.Filter(m.filtered, tag, "")
 	}
 	if proj == dueNotes {
-		sort.Slice(m.filtered, func(i, j int) bool {
-			return m.filtered[i].Due.Before(m.filtered[j].Due)
-		})
+		m.filtered = notes.WithDue(m.filtered)
 	}
 
 	if m.gridCursor >= len(m.filtered) {
@@ -474,7 +314,7 @@ func (m *model) renderSidebar() string {
 	if m.focus == 0 {
 		arrows = "◀ %s ▶"
 	}
-	header := headerStyle.Render(fmt.Sprintf(arrows, displayMetadata(m.projects[m.projectIdx])))
+	header := headerStyle.Render(fmt.Sprintf(arrows, notes.DisplayMetadata(m.projects[m.projectIdx])))
 
 	var body []string
 	for i, t := range m.tags {
@@ -493,7 +333,7 @@ func (m *model) renderSidebar() string {
 		} else {
 			style = style.Foreground(lipgloss.Color("240"))
 		}
-		body = append(body, style.Render(prefix+displayMetadata(t)))
+		body = append(body, style.Render(prefix+notes.DisplayMetadata(t)))
 	}
 
 	sidebarStyle := lipgloss.NewStyle().
@@ -553,8 +393,8 @@ func (m *model) generateGrid() string {
 			Foreground(lipgloss.Color("237")).
 			Render(strings.Repeat("─", cardContentWidth))
 
-		previewContent := file.Content
-		if tracking := formatTimeTracking(file.TimeTracked); tracking != "" {
+		previewContent := renderPreview([]byte(file.Content))
+		if tracking := notes.FormatTimeTracking(file.TimeTracked); tracking != "" {
 			summary := lipgloss.NewStyle().Foreground(lipgloss.Color("150")).Render("Time: " + tracking)
 			previewContent = summary + "\n" + previewContent
 		}
@@ -662,21 +502,16 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "ctrl+s":
 				name := strings.TrimSpace(m.nameInput.Value())
 				if name != "" {
-					name = strings.ReplaceAll(name, " ", "-")
-					if !strings.HasSuffix(name, ".md") {
-						name += ".md"
+					path, err := notes.Write(m.folder, name, m.contentInput.Value())
+					if err == nil {
+						newName := filepath.Base(path)
+						if m.state == stateEdit && m.originalEditFilename != "" && m.originalEditFilename != newName {
+							os.Remove(filepath.Join(m.folder, m.originalEditFilename))
+						}
+						m.loadAll()
+						m.state = stateFiles
+						m.updateViewportContent()
 					}
-
-					if m.state == stateEdit && m.originalEditFilename != "" && m.originalEditFilename != name {
-						os.Remove(filepath.Join(m.folder, m.originalEditFilename))
-					}
-
-					path := filepath.Join(m.folder, name)
-					os.WriteFile(path, []byte(m.contentInput.Value()), 0644)
-
-					m.loadAll() // reload all notes and projects
-					m.state = stateFiles
-					m.updateViewportContent()
 				}
 				return m, nil
 			}
@@ -927,8 +762,8 @@ func (m *model) View() string {
 	case stateFiles:
 		header = headerStyle.Render(fmt.Sprintf(
 			"Workspace  %s / %s  %d notes",
-			displayMetadata(m.projects[m.projectIdx]),
-			displayMetadata(m.selectedTag),
+			notes.DisplayMetadata(m.projects[m.projectIdx]),
+			notes.DisplayMetadata(m.selectedTag),
 			len(m.filtered),
 		))
 	case stateMarkdown:
